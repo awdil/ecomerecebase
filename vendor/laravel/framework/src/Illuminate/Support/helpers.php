@@ -5,10 +5,7 @@ use Illuminate\Contracts\Support\Htmlable;
 use Illuminate\Support\Arr;
 use Illuminate\Support\Env;
 use Illuminate\Support\HigherOrderTapProxy;
-use Illuminate\Support\Once;
-use Illuminate\Support\Onceable;
 use Illuminate\Support\Optional;
-use Illuminate\Support\Sleep;
 use Illuminate\Support\Str;
 
 if (! function_exists('append_config')) {
@@ -93,7 +90,7 @@ if (! function_exists('class_uses_recursive')) {
 
         $results = [];
 
-        foreach (array_reverse(class_parents($class) ?: []) + [$class => $class] as $class) {
+        foreach (array_reverse(class_parents($class)) + [$class => $class] as $class) {
             $results += trait_uses_recursive($class);
         }
 
@@ -123,7 +120,7 @@ if (! function_exists('e')) {
             $value = $value->value;
         }
 
-        return htmlspecialchars($value ?? '', ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8', $doubleEncode);
+        return htmlspecialchars($value ?? '', ENT_QUOTES, 'UTF-8', $doubleEncode);
     }
 }
 
@@ -154,22 +151,6 @@ if (! function_exists('filled')) {
     }
 }
 
-if (! function_exists('literal')) {
-    /**
-     * Return a new literal or anonymous object using named arguments.
-     *
-     * @return \stdClass
-     */
-    function literal(...$arguments)
-    {
-        if (count($arguments) === 1 && array_is_list($arguments)) {
-            return $arguments[0];
-        }
-
-        return (object) $arguments;
-    }
-}
-
 if (! function_exists('object_get')) {
     /**
      * Get an item from an object using "dot" notation.
@@ -194,26 +175,6 @@ if (! function_exists('object_get')) {
         }
 
         return $object;
-    }
-}
-
-if (! function_exists('once')) {
-    /**
-     * Ensures a callable is only called once, and returns the result on subsequent calls.
-     *
-     * @template  TReturnType
-     *
-     * @param  callable(): TReturnType  $callback
-     * @return TReturnType
-     */
-    function once(callable $callback)
-    {
-        $onceable = Onceable::tryFromTrace(
-            debug_backtrace(DEBUG_BACKTRACE_PROVIDE_OBJECT, 2),
-            $callback,
-        );
-
-        return $onceable ? Once::instance()->value($onceable) : call_user_func($callback);
     }
 }
 
@@ -292,7 +253,7 @@ if (! function_exists('retry')) {
             $sleepMilliseconds = $backoff[$attempts - 1] ?? $sleepMilliseconds;
 
             if ($sleepMilliseconds) {
-                Sleep::usleep(value($sleepMilliseconds, $attempts, $e) * 1000);
+                usleep(value($sleepMilliseconds, $attempts, $e) * 1000);
             }
 
             goto beginning;
@@ -352,14 +313,12 @@ if (! function_exists('throw_if')) {
     /**
      * Throw the given exception if the given condition is true.
      *
-     * @template TException of \Throwable
-     *
      * @param  mixed  $condition
-     * @param  TException|class-string<TException>|string  $exception
+     * @param  \Throwable|string  $exception
      * @param  mixed  ...$parameters
      * @return mixed
      *
-     * @throws TException
+     * @throws \Throwable
      */
     function throw_if($condition, $exception = 'RuntimeException', ...$parameters)
     {
@@ -379,14 +338,12 @@ if (! function_exists('throw_unless')) {
     /**
      * Throw the given exception unless the given condition is true.
      *
-     * @template TException of \Throwable
-     *
      * @param  mixed  $condition
-     * @param  TException|class-string<TException>|string  $exception
+     * @param  \Throwable|string  $exception
      * @param  mixed  ...$parameters
      * @return mixed
      *
-     * @throws TException
+     * @throws \Throwable
      */
     function throw_unless($condition, $exception = 'RuntimeException', ...$parameters)
     {
@@ -400,7 +357,7 @@ if (! function_exists('trait_uses_recursive')) {
     /**
      * Returns all traits used by a trait and its traits.
      *
-     * @param  object|string  $trait
+     * @param  string  $trait
      * @return array
      */
     function trait_uses_recursive($trait)
@@ -419,14 +376,10 @@ if (! function_exists('transform')) {
     /**
      * Transform the given value if it is present.
      *
-     * @template TValue of mixed
-     * @template TReturn of mixed
-     * @template TDefault of mixed
-     *
-     * @param  TValue  $value
-     * @param  callable(TValue): TReturn  $callback
-     * @param  TDefault|callable(TValue): TDefault|null  $default
-     * @return ($value is empty ? ($default is null ? null : TDefault) : TReturn)
+     * @param  mixed  $value
+     * @param  callable  $callback
+     * @param  mixed  $default
+     * @return mixed|null
      */
     function transform($value, callable $callback, $default = null)
     {

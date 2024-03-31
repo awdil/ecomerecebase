@@ -2,7 +2,9 @@
 
 namespace Illuminate\Database\Migrations;
 
+use Doctrine\DBAL\Schema\SchemaException;
 use Illuminate\Console\View\Components\BulletList;
+use Illuminate\Console\View\Components\Error;
 use Illuminate\Console\View\Components\Info;
 use Illuminate\Console\View\Components\Task;
 use Illuminate\Console\View\Components\TwoColumnDetail;
@@ -260,10 +262,6 @@ class Migrator
             return $this->repository->getMigrations($steps);
         }
 
-        if (($batch = $options['batch'] ?? 0) > 0) {
-            return $this->repository->getMigrationsByBatch($batch);
-        }
-
         return $this->repository->getLast();
     }
 
@@ -330,7 +328,7 @@ class Migrator
             return [];
         }
 
-        return tap($this->resetMigrations($migrations, Arr::wrap($paths), $pretend), function () {
+        return tap($this->resetMigrations($migrations, $paths, $pretend), function () {
             if ($this->output) {
                 $this->output->writeln('');
             }
@@ -426,19 +424,27 @@ class Migrator
      */
     protected function pretendToRun($migration, $method)
     {
-        $name = get_class($migration);
+        try {
+            $name = get_class($migration);
 
-        $reflectionClass = new ReflectionClass($migration);
+            $reflectionClass = new ReflectionClass($migration);
 
-        if ($reflectionClass->isAnonymous()) {
-            $name = $this->getMigrationName($reflectionClass->getFileName());
+            if ($reflectionClass->isAnonymous()) {
+                $name = $this->getMigrationName($reflectionClass->getFileName());
+            }
+
+            $this->write(TwoColumnDetail::class, $name);
+            $this->write(BulletList::class, collect($this->getQueries($migration, $method))->map(function ($query) {
+                return $query['query'];
+            }));
+        } catch (SchemaException $e) {
+            $name = get_class($migration);
+
+            $this->write(Error::class, sprintf(
+                '[%s] failed to dump queries. This may be due to changing database columns using Doctrine, which is not supported while pretending to run migrations.',
+                $name,
+            ));
         }
-
-        $this->write(TwoColumnDetail::class, $name);
-
-        $this->write(BulletList::class, collect($this->getQueries($migration, $method))->map(function ($query) {
-            return $query['query'];
-        }));
     }
 
     /**
@@ -706,7 +712,7 @@ class Migrator
      */
     public function deleteRepository()
     {
-        $this->repository->deleteRepository();
+        return $this->repository->deleteRepository();
     }
 
     /**

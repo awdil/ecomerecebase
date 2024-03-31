@@ -24,6 +24,17 @@ class EnvironmentEncryptCommand extends Command
                     {--force : Overwrite the existing encrypted environment file}';
 
     /**
+     * The name of the console command.
+     *
+     * This name is used to identify the command during lazy loading.
+     *
+     * @var string|null
+     *
+     * @deprecated
+     */
+    protected static $defaultName = 'env:encrypt';
+
+    /**
      * The console command description.
      *
      * @var string
@@ -64,7 +75,7 @@ class EnvironmentEncryptCommand extends Command
         $keyPassed = $key !== null;
 
         $environmentFile = $this->option('env')
-                            ? Str::finish(dirname($this->laravel->environmentFilePath()), DIRECTORY_SEPARATOR).'.env.'.$this->option('env')
+                            ? base_path('.env').'.'.$this->option('env')
                             : $this->laravel->environmentFilePath();
 
         $encryptedFile = $environmentFile.'.encrypted';

@@ -2,6 +2,7 @@
 
 namespace Illuminate\Database;
 
+use Doctrine\DBAL\Types\Type;
 use Illuminate\Database\Connectors\ConnectionFactory;
 use Illuminate\Database\Events\ConnectionEstablished;
 use Illuminate\Support\Arr;
@@ -57,6 +58,13 @@ class DatabaseManager implements ConnectionResolverInterface
     protected $reconnector;
 
     /**
+     * The custom Doctrine column types.
+     *
+     * @var array<string, array>
+     */
+    protected $doctrineTypes = [];
+
+    /**
      * Create a new database manager instance.
      *
      * @param  \Illuminate\Contracts\Foundation\Application  $app
@@ -81,9 +89,9 @@ class DatabaseManager implements ConnectionResolverInterface
      */
     public function connection($name = null)
     {
-        $name = $name ?: $this->getDefaultConnection();
-
         [$database, $type] = $this->parseConnectionName($name);
+
+        $name = $name ?: $database;
 
         // If we haven't created this connection, we'll create it based on the config
         // provided in the application. Once we've created the connections we will
@@ -93,37 +101,14 @@ class DatabaseManager implements ConnectionResolverInterface
                 $this->makeConnection($database), $type
             );
 
-            $this->dispatchConnectionEstablishedEvent($this->connections[$name]);
+            if ($this->app->bound('events')) {
+                $this->app['events']->dispatch(
+                    new ConnectionEstablished($this->connections[$name])
+                );
+            }
         }
 
         return $this->connections[$name];
-    }
-
-    /**
-     * Get a database connection instance from the given configuration.
-     *
-     * @param  string  $name
-     * @param  array  $config
-     * @param  bool  $force
-     * @return \Illuminate\Database\ConnectionInterface
-     */
-    public function connectUsing(string $name, array $config, bool $force = false)
-    {
-        if ($force) {
-            $this->purge($name);
-        }
-
-        if (isset($this->connections[$name])) {
-            throw new RuntimeException("Cannot establish connection [$name] because another connection with that name already exists.");
-        }
-
-        $connection = $this->configure(
-            $this->factory->make($config, $name), null
-        );
-
-        $this->dispatchConnectionEstablishedEvent($connection);
-
-        return tap($connection, fn ($connection) => $this->connections[$name] = $connection);
     }
 
     /**
@@ -219,24 +204,9 @@ class DatabaseManager implements ConnectionResolverInterface
         // the connection, which will allow us to reconnect from the connections.
         $connection->setReconnector($this->reconnector);
 
+        $this->registerConfiguredDoctrineTypes($connection);
+
         return $connection;
-    }
-
-    /**
-     * Dispatch the ConnectionEstablished event if the event dispatcher is available.
-     *
-     * @param  \Illuminate\Database\Connection  $connection
-     * @return void
-     */
-    protected function dispatchConnectionEstablishedEvent(Connection $connection)
-    {
-        if (! $this->app->bound('events')) {
-            return;
-        }
-
-        $this->app['events']->dispatch(
-            new ConnectionEstablished($connection)
-        );
     }
 
     /**
@@ -255,6 +225,49 @@ class DatabaseManager implements ConnectionResolverInterface
         }
 
         return $connection;
+    }
+
+    /**
+     * Register custom Doctrine types with the connection.
+     *
+     * @param  \Illuminate\Database\Connection  $connection
+     * @return void
+     */
+    protected function registerConfiguredDoctrineTypes(Connection $connection): void
+    {
+        foreach ($this->app['config']->get('database.dbal.types', []) as $name => $class) {
+            $this->registerDoctrineType($class, $name, $name);
+        }
+
+        foreach ($this->doctrineTypes as $name => [$type, $class]) {
+            $connection->registerDoctrineType($class, $name, $type);
+        }
+    }
+
+    /**
+     * Register a custom Doctrine type.
+     *
+     * @param  string  $class
+     * @param  string  $name
+     * @param  string  $type
+     * @return void
+     *
+     * @throws \Doctrine\DBAL\DBALException
+     * @throws \RuntimeException
+     */
+    public function registerDoctrineType(string $class, string $name, string $type): void
+    {
+        if (! class_exists('Doctrine\DBAL\Connection')) {
+            throw new RuntimeException(
+                'Registering a custom Doctrine type requires Doctrine DBAL (doctrine/dbal).'
+            );
+        }
+
+        if (! Type::hasType($name)) {
+            Type::addType($name, $class);
+        }
+
+        $this->doctrineTypes[$name] = [$type, $class];
     }
 
     /**
@@ -361,13 +374,13 @@ class DatabaseManager implements ConnectionResolverInterface
     }
 
     /**
-     * Get all of the supported drivers.
+     * Get all of the support drivers.
      *
      * @return string[]
      */
     public function supportedDrivers()
     {
-        return ['mysql', 'mariadb', 'pgsql', 'sqlite', 'sqlsrv'];
+        return ['mysql', 'pgsql', 'sqlite', 'sqlsrv'];
     }
 
     /**

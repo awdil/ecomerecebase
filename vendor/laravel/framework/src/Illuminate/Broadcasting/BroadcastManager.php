@@ -112,7 +112,7 @@ class BroadcastManager implements FactoryContract
      */
     public function channelRoutes(array $attributes = null)
     {
-        $this->routes($attributes);
+        return $this->routes($attributes);
     }
 
     /**
@@ -279,17 +279,6 @@ class BroadcastManager implements FactoryContract
      * @param  array  $config
      * @return \Illuminate\Contracts\Broadcasting\Broadcaster
      */
-    protected function createReverbDriver(array $config)
-    {
-        return $this->createPusherDriver($config);
-    }
-
-    /**
-     * Create an instance of the driver.
-     *
-     * @param  array  $config
-     * @return \Illuminate\Contracts\Broadcasting\Broadcaster
-     */
     protected function createPusherDriver(array $config)
     {
         return new PusherBroadcaster($this->pusher($config));
@@ -303,23 +292,14 @@ class BroadcastManager implements FactoryContract
      */
     public function pusher(array $config)
     {
-        $guzzleClient = new GuzzleClient(
-            array_merge(
-                [
-                    'connect_timeout' => 10,
-                    'crypto_method' => STREAM_CRYPTO_METHOD_TLSv1_2_CLIENT,
-                    'timeout' => 30,
-                ],
-                $config['client_options'] ?? [],
-            ),
-        );
-
         $pusher = new Pusher(
             $config['key'],
             $config['secret'],
             $config['app_id'],
             $config['options'] ?? [],
-            $guzzleClient,
+            isset($config['client_options']) && ! empty($config['client_options'])
+                    ? new GuzzleClient($config['client_options'])
+                    : null,
         );
 
         if ($config['log'] ?? false) {

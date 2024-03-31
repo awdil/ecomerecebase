@@ -11,8 +11,6 @@ use Illuminate\Database\Eloquent\ModelNotFoundException;
 use Illuminate\Database\Eloquent\Relations\Concerns\AsPivot;
 use Illuminate\Database\Eloquent\Relations\Concerns\InteractsWithDictionary;
 use Illuminate\Database\Eloquent\Relations\Concerns\InteractsWithPivotTable;
-use Illuminate\Database\Query\Grammars\MySqlGrammar;
-use Illuminate\Database\UniqueConstraintViolationException;
 use Illuminate\Support\Str;
 use InvalidArgumentException;
 
@@ -137,7 +135,7 @@ class BelongsToMany extends Relation
      *
      * @param  \Illuminate\Database\Eloquent\Builder  $query
      * @param  \Illuminate\Database\Eloquent\Model  $parent
-     * @param  string|class-string<\Illuminate\Database\Eloquent\Model>  $table
+     * @param  string  $table
      * @param  string  $foreignPivotKey
      * @param  string  $relatedPivotKey
      * @param  string  $parentKey
@@ -244,8 +242,7 @@ class BelongsToMany extends Relation
     {
         $whereIn = $this->whereInMethod($this->parent, $this->parentKey);
 
-        $this->whereInEager(
-            $whereIn,
+        $this->query->{$whereIn}(
             $this->getQualifiedForeignPivotKeyName(),
             $this->getKeys($models, $this->parentKey)
         );
@@ -611,7 +608,7 @@ class BelongsToMany extends Relation
     }
 
     /**
-     * Get the first record matching the attributes. If the record is not found, create it.
+     * Get the first related record matching the attributes or create it.
      *
      * @param  array  $attributes
      * @param  array  $values
@@ -623,43 +620,13 @@ class BelongsToMany extends Relation
     {
         if (is_null($instance = (clone $this)->where($attributes)->first())) {
             if (is_null($instance = $this->related->where($attributes)->first())) {
-                $instance = $this->createOrFirst($attributes, $values, $joining, $touch);
+                $instance = $this->create(array_merge($attributes, $values), $joining, $touch);
             } else {
-                try {
-                    $this->getQuery()->withSavepointIfNeeded(fn () => $this->attach($instance, $joining, $touch));
-                } catch (UniqueConstraintViolationException) {
-                    // Nothing to do, the model was already attached...
-                }
+                $this->attach($instance, $joining, $touch);
             }
         }
 
         return $instance;
-    }
-
-    /**
-     * Attempt to create the record. If a unique constraint violation occurs, attempt to find the matching record.
-     *
-     * @param  array  $attributes
-     * @param  array  $values
-     * @param  array  $joining
-     * @param  bool  $touch
-     * @return \Illuminate\Database\Eloquent\Model
-     */
-    public function createOrFirst(array $attributes = [], array $values = [], array $joining = [], $touch = true)
-    {
-        try {
-            return $this->getQuery()->withSavePointIfNeeded(fn () => $this->create(array_merge($attributes, $values), $joining, $touch));
-        } catch (UniqueConstraintViolationException $e) {
-            // ...
-        }
-
-        try {
-            return tap($this->related->where($attributes)->first() ?? throw $e, function ($instance) use ($joining, $touch) {
-                $this->getQuery()->withSavepointIfNeeded(fn () => $this->attach($instance, $joining, $touch));
-            });
-        } catch (UniqueConstraintViolationException $e) {
-            return (clone $this)->useWritePdo()->where($attributes)->first() ?? throw $e;
-        }
     }
 
     /**
@@ -673,13 +640,19 @@ class BelongsToMany extends Relation
      */
     public function updateOrCreate(array $attributes, array $values = [], array $joining = [], $touch = true)
     {
-        return tap($this->firstOrCreate($attributes, $values, $joining, $touch), function ($instance) use ($values) {
-            if (! $instance->wasRecentlyCreated) {
-                $instance->fill($values);
-
-                $instance->save(['touch' => false]);
+        if (is_null($instance = (clone $this)->where($attributes)->first())) {
+            if (is_null($instance = $this->related->where($attributes)->first())) {
+                return $this->create(array_merge($attributes, $values), $joining, $touch);
+            } else {
+                $this->attach($instance, $joining, $touch);
             }
-        });
+        }
+
+        $instance->fill($values);
+
+        $instance->save(['touch' => false]);
+
+        return $instance;
     }
 
     /**
@@ -1180,10 +1153,6 @@ class BelongsToMany extends Relation
      */
     public function touch()
     {
-        if ($this->related->isIgnoringTouch()) {
-            return;
-        }
-
         $columns = [
             $this->related->getUpdatedAtColumn() => $this->related->freshTimestampString(),
         ];
@@ -1350,42 +1319,6 @@ class BelongsToMany extends Relation
         $this->performJoin($query);
 
         return parent::getRelationExistenceQuery($query, $parentQuery, $columns);
-    }
-
-    /**
-     * Alias to set the "limit" value of the query.
-     *
-     * @param  int  $value
-     * @return $this
-     */
-    public function take($value)
-    {
-        return $this->limit($value);
-    }
-
-    /**
-     * Set the "limit" value of the query.
-     *
-     * @param  int  $value
-     * @return $this
-     */
-    public function limit($value)
-    {
-        if ($this->parent->exists) {
-            $this->query->limit($value);
-        } else {
-            $column = $this->getExistenceCompareKey();
-
-            $grammar = $this->query->getQuery()->getGrammar();
-
-            if ($grammar instanceof MySqlGrammar && $grammar->useLegacyGroupLimit($this->query->getQuery())) {
-                $column = 'pivot_'.last(explode('.', $column));
-            }
-
-            $this->query->groupLimit($value, $column);
-        }
-
-        return $this;
     }
 
     /**

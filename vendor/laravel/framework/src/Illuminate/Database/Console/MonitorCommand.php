@@ -5,6 +5,7 @@ namespace Illuminate\Database\Console;
 use Illuminate\Contracts\Events\Dispatcher;
 use Illuminate\Database\ConnectionResolverInterface;
 use Illuminate\Database\Events\DatabaseBusy;
+use Illuminate\Support\Composer;
 use Symfony\Component\Console\Attribute\AsCommand;
 
 #[AsCommand(name: 'db:monitor')]
@@ -18,6 +19,17 @@ class MonitorCommand extends DatabaseInspectionCommand
     protected $signature = 'db:monitor
                 {--databases= : The database connections to monitor}
                 {--max= : The maximum number of connections that can be open before an event is dispatched}';
+
+    /**
+     * The name of the console command.
+     *
+     * This name is used to identify the command during lazy loading.
+     *
+     * @var string|null
+     *
+     * @deprecated
+     */
+    protected static $defaultName = 'db:monitor';
 
     /**
      * The console command description.
@@ -45,10 +57,11 @@ class MonitorCommand extends DatabaseInspectionCommand
      *
      * @param  \Illuminate\Database\ConnectionResolverInterface  $connection
      * @param  \Illuminate\Contracts\Events\Dispatcher  $events
+     * @param  \Illuminate\Support\Composer  $composer
      */
-    public function __construct(ConnectionResolverInterface $connection, Dispatcher $events)
+    public function __construct(ConnectionResolverInterface $connection, Dispatcher $events, Composer $composer)
     {
-        parent::__construct();
+        parent::__construct($composer);
 
         $this->connection = $connection;
         $this->events = $events;

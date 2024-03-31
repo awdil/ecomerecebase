@@ -10,12 +10,8 @@ use Illuminate\Database\Migrations\Migrator;
 use Illuminate\Database\SQLiteDatabaseDoesNotExistException;
 use Illuminate\Database\SqlServerConnection;
 use PDOException;
-use Symfony\Component\Console\Attribute\AsCommand;
 use Throwable;
 
-use function Laravel\Prompts\confirm;
-
-#[AsCommand(name: 'migrate')]
 class MigrateCommand extends BaseCommand implements Isolatable
 {
     use ConfirmableTrait;
@@ -33,8 +29,7 @@ class MigrateCommand extends BaseCommand implements Isolatable
                 {--pretend : Dump the SQL queries that would be run}
                 {--seed : Indicates if the seed task should be re-run}
                 {--seeder= : The class name of the root seeder}
-                {--step : Force the migrations to be run so they can be rolled back individually}
-                {--graceful : Return a successful exit code even if an error occurs}';
+                {--step : Force the migrations to be run so they can be rolled back individually}';
 
     /**
      * The console command description.
@@ -83,39 +78,17 @@ class MigrateCommand extends BaseCommand implements Isolatable
             return 1;
         }
 
-        try {
-            $this->runMigrations();
-        } catch (Throwable $e) {
-            if ($this->option('graceful')) {
-                $this->components->warn($e->getMessage());
-
-                return 0;
-            }
-
-            throw $e;
-        }
-
-        return 0;
-    }
-
-    /**
-     * Run the pending migrations.
-     *
-     * @return void
-     */
-    protected function runMigrations()
-    {
         $this->migrator->usingConnection($this->option('database'), function () {
             $this->prepareDatabase();
 
             // Next, we will check to see if a path option has been defined. If it has
             // we will use the path relative to the root of this installation folder
             // so that migrations may be run for any path within the applications.
-            $this->migrator->setOutput($this->output)
-                ->run($this->getMigrationPaths(), [
-                    'pretend' => $this->option('pretend'),
-                    'step' => $this->option('step'),
-                ]);
+            $migrations = $this->migrator->setOutput($this->output)
+                    ->run($this->getMigrationPaths(), [
+                        'pretend' => $this->option('pretend'),
+                        'step' => $this->option('step'),
+                    ]);
 
             // Finally, if the "seed" option has been given, we will re-run the database
             // seed task to re-populate the database, which is convenient when adding
@@ -127,6 +100,8 @@ class MigrateCommand extends BaseCommand implements Isolatable
                 ]);
             }
         });
+
+        return 0;
     }
 
     /**
@@ -163,7 +138,7 @@ class MigrateCommand extends BaseCommand implements Isolatable
         return retry(2, fn () => $this->migrator->repositoryExists(), 0, function ($e) {
             try {
                 if ($e->getPrevious() instanceof SQLiteDatabaseDoesNotExistException) {
-                    return $this->createMissingSqliteDatabase($e->getPrevious()->path);
+                    return $this->createMissingSqliteDatbase($e->getPrevious()->path);
                 }
 
                 $connection = $this->migrator->resolveConnection($this->option('database'));
@@ -171,7 +146,7 @@ class MigrateCommand extends BaseCommand implements Isolatable
                 if (
                     $e->getPrevious() instanceof PDOException &&
                     $e->getPrevious()->getCode() === 1049 &&
-                    in_array($connection->getDriverName(), ['mysql', 'mariadb'])) {
+                    $connection->getDriverName() === 'mysql') {
                     return $this->createMissingMysqlDatabase($connection);
                 }
 
@@ -188,7 +163,7 @@ class MigrateCommand extends BaseCommand implements Isolatable
      * @param  string  $path
      * @return bool
      */
-    protected function createMissingSqliteDatabase($path)
+    protected function createMissingSqliteDatbase($path)
     {
         if ($this->option('force')) {
             return touch($path);
@@ -198,9 +173,9 @@ class MigrateCommand extends BaseCommand implements Isolatable
             return false;
         }
 
-        $this->components->warn('The SQLite database configured for this application does not exist: '.$path);
+        $this->components->warn('The SQLite database does not exist: '.$path);
 
-        if (! confirm('Would you like to create it?', default: true)) {
+        if (! $this->components->confirm('Would you like to create it?')) {
             return false;
         }
 
@@ -225,7 +200,7 @@ class MigrateCommand extends BaseCommand implements Isolatable
         if (! $this->option('force') && ! $this->option('no-interaction')) {
             $this->components->warn("The database '{$connection->getDatabaseName()}' does not exist on the '{$connection->getName()}' connection.");
 
-            if (! confirm('Would you like to create it?', default: true)) {
+            if (! $this->components->confirm('Would you like to create it?')) {
                 return false;
             }
         }

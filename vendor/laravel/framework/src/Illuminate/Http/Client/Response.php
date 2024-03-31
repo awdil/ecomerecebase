@@ -6,9 +6,8 @@ use ArrayAccess;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Traits\Macroable;
 use LogicException;
-use Stringable;
 
-class Response implements ArrayAccess, Stringable
+class Response implements ArrayAccess
 {
     use Concerns\DeterminesStatusCode, Macroable {
         __call as macroCall;
@@ -339,8 +338,9 @@ class Response implements ArrayAccess, Stringable
      */
     public function throwUnlessStatus($statusCode)
     {
-        if (is_callable($statusCode)) {
-            return $statusCode($this->status(), $this) ? $this : $this->throw();
+        if (is_callable($statusCode) &&
+            ! $statusCode($this->status(), $this)) {
+            return $this->throw();
         }
 
         return $this->status() === $statusCode ? $this : $this->throw();

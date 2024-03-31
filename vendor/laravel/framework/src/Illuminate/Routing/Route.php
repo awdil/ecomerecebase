@@ -9,7 +9,6 @@ use Illuminate\Http\Request;
 use Illuminate\Routing\Contracts\CallableDispatcher;
 use Illuminate\Routing\Contracts\ControllerDispatcher as ControllerDispatcherContract;
 use Illuminate\Routing\Controllers\HasMiddleware;
-use Illuminate\Routing\Controllers\Middleware;
 use Illuminate\Routing\Matching\HostValidator;
 use Illuminate\Routing\Matching\MethodValidator;
 use Illuminate\Routing\Matching\SchemeValidator;
@@ -23,7 +22,7 @@ use Symfony\Component\Routing\Route as SymfonyRoute;
 
 class Route
 {
-    use CreatesRegularExpressionRouteConstraints, FiltersControllerMiddleware, Macroable, ResolvesRouteDependencies;
+    use CreatesRegularExpressionRouteConstraints, Macroable, RouteDependencyResolverTrait;
 
     /**
      * The URI pattern the route responds to.
@@ -269,10 +268,6 @@ class Route
      */
     public function getController()
     {
-        if (! $this->isControllerAction()) {
-            return null;
-        }
-
         if (! $this->controller) {
             $class = $this->getControllerClass();
 
@@ -285,11 +280,11 @@ class Route
     /**
      * Get the controller class used for the route.
      *
-     * @return string|null
+     * @return string
      */
     public function getControllerClass()
     {
-        return $this->isControllerAction() ? $this->parseControllerCallback()[0] : null;
+        return $this->parseControllerCallback()[0];
     }
 
     /**
@@ -578,13 +573,13 @@ class Route
      * Get the parent parameter of the given parameter.
      *
      * @param  string  $parameter
-     * @return string|null
+     * @return string
      */
     public function parentOfParameter($parameter)
     {
         $key = array_search($parameter, array_keys($this->parameters));
 
-        if ($key === 0 || $key === false) {
+        if ($key === 0) {
             return;
         }
 
@@ -1002,7 +997,6 @@ class Route
         return is_string($missing) &&
             Str::startsWith($missing, [
                 'O:47:"Laravel\\SerializableClosure\\SerializableClosure',
-                'O:55:"Laravel\\SerializableClosure\\UnsignedSerializableClosure',
             ]) ? unserialize($missing) : $missing;
     }
 
@@ -1118,15 +1112,11 @@ class Route
      */
     protected function staticallyProvidedControllerMiddleware(string $class, string $method)
     {
-        return collect($class::middleware())->map(function ($middleware) {
-            return $middleware instanceof Middleware
-                ? $middleware
-                : new Middleware($middleware);
-        })->reject(function ($middleware) use ($method) {
-            return static::methodExcludedByOptions(
+        return collect($class::middleware())->reject(function ($middleware) use ($method) {
+            return $this->controllerDispatcher()::methodExcludedByOptions(
                 $method, ['only' => $middleware->only, 'except' => $middleware->except]
             );
-        })->map->middleware->flatten()->values()->all();
+        })->map->middleware->values()->all();
     }
 
     /**
@@ -1145,7 +1135,7 @@ class Route
     }
 
     /**
-     * Get the middleware that should be removed from the route.
+     * Get the middleware should be removed from the route.
      *
      * @return array
      */
@@ -1350,13 +1340,13 @@ class Route
     {
         if ($this->action['uses'] instanceof Closure) {
             $this->action['uses'] = serialize(
-                SerializableClosure::unsigned($this->action['uses'])
+                new SerializableClosure($this->action['uses'])
             );
         }
 
         if (isset($this->action['missing']) && $this->action['missing'] instanceof Closure) {
             $this->action['missing'] = serialize(
-                SerializableClosure::unsigned($this->action['missing'])
+                new SerializableClosure($this->action['missing'])
             );
         }
 
